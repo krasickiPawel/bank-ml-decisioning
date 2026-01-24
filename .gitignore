@@ -1,0 +1,20 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+
+# Data
+data/raw/*.csv
+data/processed/
+
+# MLflow volumes
+mlflow/
+
+# Reports
+reports/figures/
+
+# OS/IDE
+.DS_Store
+.vscode/
+.idea/
+
