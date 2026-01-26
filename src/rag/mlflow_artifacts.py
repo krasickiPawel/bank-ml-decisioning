@@ -43,16 +43,37 @@ def _render_csv_as_markdown(df: pd.DataFrame, max_rows: int = 40) -> str:
     return head.to_markdown(index=False)
 
 
-def _download_artifact(client: MlflowClient, run_id: str, artifact_path: str) -> Optional[Path]:
+def _download_artifact(client: MlflowClient, run_id: str, artifact_path: str, timeout: int = 15) -> Optional[Path]:
     """
     Returns local path if download succeeded, else None.
+    Uses timeout to avoid hanging.
+    Note: Timeout is best-effort - MLflow client may not respect it fully.
     """
-    try:
-        with tempfile.TemporaryDirectory() as td:
-            local = client.download_artifacts(run_id, artifact_path, dst_path=td)
-            return Path(local)
-    except Exception:
+    import threading
+    
+    result = [None]
+    exception = [None]
+    
+    def download_worker():
+        try:
+            with tempfile.TemporaryDirectory() as td:
+                local = client.download_artifacts(run_id, artifact_path, dst_path=td)
+                result[0] = Path(local)
+        except Exception as e:
+            exception[0] = e
+    
+    thread = threading.Thread(target=download_worker, daemon=True)
+    thread.start()
+    thread.join(timeout=timeout)
+    
+    if thread.is_alive():
+        # Thread is still running - timeout occurred
         return None
+    
+    if exception[0]:
+        return None
+    
+    return result[0]
 
 
 def _artifact_to_doc_text(path: Path, artifact_path: str) -> Optional[str]:

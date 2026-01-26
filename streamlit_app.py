@@ -114,32 +114,38 @@ def _safe_json(resp: requests.Response) -> Dict[str, Any]:
     return {"status": "error", "http_status": resp.status_code, "body": resp.text[:2000]}
 
 
-def post_json(url: str, payload=None, timeout: int = 10):
+def post_json(url: str, payload=None, timeout: int = 60):
     try:
         r = requests.post(url, json=payload, timeout=timeout)
         return _safe_json(r)
+    except requests.exceptions.Timeout:
+        return {"status": "error", "message": f"Request timeout after {timeout}s"}
     except Exception as e:
         return {"status": "error", "message": str(e)}
 
 
-def http_get(url: str, timeout: int = 10, params: Optional[dict] = None) -> Tuple[Optional[Dict[str, Any]], Optional[str], int]:
+def http_get(url: str, timeout: int = 30, params: Optional[dict] = None) -> Tuple[Optional[Dict[str, Any]], Optional[str], int]:
     try:
         resp = requests.get(url, params=params, timeout=timeout)
         data = _safe_json(resp)
         if resp.status_code != 200:
             return data, f"HTTP {resp.status_code}", resp.status_code
         return data, None, resp.status_code
+    except requests.exceptions.Timeout:
+        return None, f"Request timeout after {timeout}s", 0
     except Exception as e:
         return None, str(e), 0
 
 
-def http_post(url: str, timeout: int = 10, payload: Optional[dict] = None) -> Tuple[Optional[Dict[str, Any]], Optional[str], int]:
+def http_post(url: str, timeout: int = 60, payload: Optional[dict] = None) -> Tuple[Optional[Dict[str, Any]], Optional[str], int]:
     try:
         resp = requests.post(url, json=payload, timeout=timeout)
         data = _safe_json(resp)
         if resp.status_code != 200:
             return data, f"HTTP {resp.status_code}", resp.status_code
         return data, None, resp.status_code
+    except requests.exceptions.Timeout:
+        return None, f"Request timeout after {timeout}s", 0
     except Exception as e:
         return None, str(e), 0
 
@@ -273,7 +279,7 @@ with tabs[0]:
             st.stop()
 
         payload = {"features": features_obj, "top_k_reasons": int(top_k)}
-        out, err, status = http_post(f"{api_url}/predict", payload=payload, timeout=30)
+        out, err, status = http_post(f"{api_url}/predict", payload=payload, timeout=60)
 
         if status == 503:
             st.warning("API is loading/reloading. Try again in a moment.")

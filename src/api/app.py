@@ -115,11 +115,14 @@ def _startup() -> None:
 
 def _set_bundle(b: ModelBundle) -> None:
     app.state.bundle = b
-    app.state.rag = RAGService().load_or_build(
-        docs_dir="rag_docs",
-        tracking_uri=b.tracking_uri,
-        run_id=b.run_id,
-    )
+    # Initialize RAG lazily - don't block on startup
+    # RAG will be built on first request
+    app.state.rag = None
+    app.state.rag_config = {
+        "docs_dir": "rag_docs",
+        "tracking_uri": b.tracking_uri,
+        "run_id": b.run_id,
+    }
 
 
 def _get_bundle() -> Optional[ModelBundle]:
@@ -149,10 +152,34 @@ def _ensure_loaded() -> ModelBundle:
     return b
 
 
+def _get_or_init_rag() -> Optional[RAGService]:
+    """Lazy initialization of RAG - only build when needed."""
+    rag = getattr(app.state, "rag", None)
+    if rag is not None:
+        return rag
+    
+    config = getattr(app.state, "rag_config", None)
+    if config is None:
+        return None
+    
+    try:
+        rag = RAGService().load_or_build(
+            docs_dir=config["docs_dir"],
+            tracking_uri=config.get("tracking_uri"),
+            run_id=config.get("run_id"),
+        )
+        app.state.rag = rag
+        return rag
+    except Exception as e:
+        app.state.rag_error = str(e)
+        return None
+
+
 def _start_initial_load() -> None:
     """
     Do not block Uvicorn startup.
     Streamlit can call /health and see reload_status=loading.
+    RAG is initialized lazily on first request.
     """
     _set_reload_status("loading")
     _set_reload_error(None)
@@ -162,28 +189,10 @@ def _start_initial_load() -> None:
             bundle = load_model_bundle()
             _set_bundle(bundle)
             _set_reload_status("idle")
-            rag: RAGService = getattr(app.state, "rag", None)
-            if rag is None:
-                app.state.rag = RAGService().load_or_build(
-                    docs_dir="rag_docs",
-                    tracking_uri=bundle.tracking_uri,
-                    run_id=bundle.run_id,
-                )
-            else:
-                rag._tracking_uri = bundle.tracking_uri  # keep simple
-                rag._run_id = bundle.run_id
-                rag.rebuild_index()
+            # RAG will be initialized on first request
         except Exception as e:
             _set_reload_error(str(e))
             _set_reload_status("error")
-            app.state.rag_error = str(e)
-        # try:
-        #     bundle = load_model_bundle()
-        #     _set_bundle(bundle)
-        #     _set_reload_status("idle")
-        # except Exception as e:
-        #     _set_reload_error(str(e))
-        #     _set_reload_status("error")
 
     threading.Thread(target=_worker, daemon=True).start()
 
@@ -304,7 +313,7 @@ def _run_url(bundle: ModelBundle) -> Optional[str]:
 def health() -> HealthResponse:
     b = _get_bundle()
     reload_status = _get_reload_status()
-    rag = getattr(app.state, "rag", None)
+    rag = _get_or_init_rag()
     rag_indexed_run_id = getattr(rag, "run_id", None) if rag is not None else None
 
     if b is None:
@@ -457,6 +466,8 @@ def reload_model():
             new_bundle = load_model_bundle()
             _set_bundle(new_bundle)
             _set_reload_status("idle")
+            # Reset RAG so it rebuilds with new run_id
+            app.state.rag = None
         except Exception as e:
             _set_reload_error(str(e))
             _set_reload_status("error")
@@ -546,7 +557,9 @@ def drift(limit: int = 200):
 
 @app.get("/rag/health", response_model=None)
 def rag_health():
-    svc: RAGService = app.state.rag
+    svc = _get_or_init_rag()
+    if svc is None:
+        return {"status": "not_initialized", "message": "RAG will be initialized on first request"}
     return {"status": "ok", "rag": svc.status()}
 
 
@@ -557,15 +570,25 @@ class RAGAskRequest(BaseModel):
 
 @app.post("/rag/ask", response_model=None)
 def rag_ask(req: RAGAskRequest):
-    rag: RAGService = getattr(app.state, "rag", None)
+    rag = _get_or_init_rag()
     if rag is None:
-        return {"status": "error", "message": "RAG not initialized"}
+        error = getattr(app.state, "rag_error", None)
+        return {
+            "status": "error",
+            "message": f"RAG not initialized. {error if error else 'Try again in a moment.'}"
+        }
     return rag.ask(req.question, top_k=req.top_k)
 
 
 @app.post("/rag/answer", response_model=None)
 def rag_answer(req: RAGRequest):
-    svc: RAGService = app.state.rag
+    svc = _get_or_init_rag()
+    if svc is None:
+        error = getattr(app.state, "rag_error", None)
+        return {
+            "status": "error",
+            "message": f"RAG not initialized. {error if error else 'Try again in a moment.'}"
+        }
     res = svc.answer(req.question, top_k=req.top_k)
 
     citations = [

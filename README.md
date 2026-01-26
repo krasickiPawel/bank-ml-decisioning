@@ -18,6 +18,87 @@ Threshold is selected on validation data using a cost function.
 
 ---
 
+## Quick Start (Offline/Demo Mode)
+
+**For interview demos - everything runs locally, no external dependencies after initial setup.**
+
+### 1. Initial Setup (Run Once)
+
+**Windows (PowerShell):**
+```powershell
+.\setup.ps1
+```
+
+**Linux/Mac:**
+```bash
+chmod +x setup.sh
+./setup.sh
+```
+
+**Manual setup:**
+```bash
+python -m venv .venv
+source .venv/bin/activate  # Windows: .venv\Scripts\Activate.ps1
+pip install -r requirements.txt
+```
+
+This will:
+- Create virtual environment
+- Install all dependencies
+- Download the German Credit dataset
+- Create necessary directories
+
+### 2. Prepare for Demo (Run Before Interview)
+
+**Step 1: Start MLflow server (Terminal 1)**
+```bash
+mlflow server \
+  --host 0.0.0.0 \
+  --port 5050 \
+  --backend-store-uri sqlite:///mlflow/mlflow.db \
+  --default-artifact-root ./mlflow/artifacts
+```
+
+**Step 2: Train models (Terminal 2)**
+```bash
+# Activate venv
+source .venv/bin/activate  # Windows: .venv\Scripts\Activate.ps1
+
+# Train a few models
+python -m src.train --experiment bank-credit-risk-http --run-name rf-baseline --model rf
+python -m src.train --experiment bank-credit-risk-http --run-name xgb-baseline --model xgb
+python -m src.train --experiment bank-credit-risk-http --run-name logreg-baseline --model logreg
+
+# Select best model
+python src/scripts/select_best_model.py
+```
+
+**Step 3: Verify everything works**
+```bash
+# Start API (Terminal 3)
+uvicorn src.api.app:app --reload --port 8000
+
+# In another terminal, test:
+curl http://localhost:8000/health
+```
+
+**Step 4: Pre-warm cache (Important for demo!)**
+```bash
+# Make a few predictions to ensure model is cached
+curl -X POST http://localhost:8000/predict \
+  -H "Content-Type: application/json" \
+  -d '{"features": {"duration": 12, "credit_amount": 1000, "age": 35}}'
+```
+
+**Step 5: Start Streamlit (Terminal 4)**
+```bash
+streamlit run streamlit_app.py
+```
+
+**Now everything is ready!** The model is cached locally, so the API will start quickly even if MLflow is slow.
+
+---
+
 ## Requirements
 
 Python 3.12 recommended.
@@ -182,6 +263,45 @@ Example questions:
 
 ---
 
+## Troubleshooting
+
+### API returns 503 "Model is loading/reloading"
+
+**Solution:** Wait 30-60 seconds after starting the API. The model is being downloaded from MLflow and cached locally. After the first load, subsequent starts are much faster.
+
+**For demo:** Pre-warm the cache before the interview by making a prediction request.
+
+### API hangs on startup
+
+**Solution:** 
+1. Check MLflow server is running: `curl http://localhost:5050`
+2. Check if model exists in MLflow UI
+3. Try explicit run_id: `export MODEL_RUN_ID=<your_run_id>`
+4. Check cache: `ls -la data/mlflow_cache/runs/`
+
+### Streamlit shows timeout errors
+
+**Solution:**
+- API might still be loading - wait and refresh
+- Check API health: `curl http://localhost:8000/health`
+- Increase timeout in `streamlit_app.py` if needed
+
+### RAG not working
+
+**Solution:**
+- RAG initializes lazily on first request - this is normal
+- Check `/rag/health` endpoint
+- MLflow artifacts are optional - RAG works with just `rag_docs/*.md`
+
+### Offline mode (no MLflow server)
+
+**Solution:**
+- Models are cached in `data/mlflow_cache/` after first download
+- API can work with cached models even if MLflow server is down
+- For true offline, use `MODEL_FALLBACK_PATH` environment variable
+
+---
+
 ## Notes
 
 * Drift needs `drift_reference_train.csv` logged in the training run.
@@ -189,4 +309,8 @@ Example questions:
 * "Reasons" depend on classifier type.
   LogisticRegression and XGBoost support stronger local explanations.
   For RandomForest/HGB we can show global importances as a simple demo.
+* **Model caching:** After first download, models are cached locally in `data/mlflow_cache/`.
+  This allows the API to start quickly even if MLflow server is slow or unavailable.
+* **RAG lazy loading:** RAG index is built on first request, not during API startup.
+  This prevents blocking during initialization.
 

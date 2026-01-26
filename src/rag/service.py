@@ -108,15 +108,32 @@ class RAGService:
         docs: list[tuple[str, str]] = []
         docs.extend(self._load_markdown_docs(self._docs_dir))
 
+        # Load MLflow artifacts with timeout protection
         if self._tracking_uri and self._run_id:
-            art_docs = load_mlflow_artifact_docs(
-                tracking_uri=self._tracking_uri,
-                run_id=self._run_id,
-            )
-            docs.extend([(d.source, d.text) for d in art_docs])
+            try:
+                art_docs = load_mlflow_artifact_docs(
+                    tracking_uri=self._tracking_uri,
+                    run_id=self._run_id,
+                )
+                docs.extend([(d.source, d.text) for d in art_docs])
+            except Exception as e:
+                # Don't fail if MLflow artifacts can't be loaded
+                # Just log and continue with markdown docs
+                import warnings
+                warnings.warn(f"Could not load MLflow artifacts for RAG: {e}")
 
         self._chunks = self._chunk_docs(docs)
         self._build_index(self._chunks)
+
+    def status(self) -> Dict[str, Any]:
+        """Return status of RAG index."""
+        return {
+            "loaded": self._vectorizer is not None and self._matrix is not None,
+            "chunks": len(self._chunks),
+            "docs_dir": str(self._docs_dir) if self._docs_dir else None,
+            "run_id": self._run_id,
+            "tracking_uri": self._tracking_uri,
+        }
 
     def ask(self, question: str, top_k: int = 4) -> Dict[str, Any]:
         if not self._vectorizer or self._matrix is None or not self._chunks:

@@ -67,23 +67,45 @@ def _read_best_model_json(path: str) -> Optional[str]:
     return str(run_id) if run_id else None
 
 
-def _download_artifact_if_exists(client: MlflowClient, run_id: str, artifact_path: str, dst_dir: Path) -> Optional[Path]:
+def _download_artifact_if_exists(client: MlflowClient, run_id: str, artifact_path: str, dst_dir: Path, timeout: int = 30) -> Optional[Path]:
     """
     Returns local path if artifact exists and was downloaded, else None.
+    Uses timeout to avoid hanging on network issues.
+    Note: Timeout is best-effort - MLflow client may not respect it fully.
     """
-    try:
-        dst_dir.mkdir(parents=True, exist_ok=True)
-        local_path = client.download_artifacts(run_id, artifact_path, dst_path=str(dst_dir))
-        return Path(local_path)
-    except Exception:
+    import threading
+    
+    result = [None]
+    exception = [None]
+    
+    def download_worker():
+        try:
+            dst_dir.mkdir(parents=True, exist_ok=True)
+            local_path = client.download_artifacts(run_id, artifact_path, dst_path=str(dst_dir))
+            result[0] = Path(local_path)
+        except Exception as e:
+            exception[0] = e
+    
+    thread = threading.Thread(target=download_worker, daemon=True)
+    thread.start()
+    thread.join(timeout=timeout)
+    
+    if thread.is_alive():
+        # Thread is still running - timeout occurred
         return None
+    
+    if exception[0]:
+        return None
+    
+    return result[0]
 
 
-def _load_run_model_cached(client: MlflowClient, run_id: str, artifact_path: str) -> Any:
+def _load_run_model_cached(client: MlflowClient, run_id: str, artifact_path: str, timeout: int = 60) -> Any:
     """
     Avoids repeated MLflow fetches:
     - download model artifacts once into local cache dir
     - then load from local path
+    - uses timeout to avoid hanging
     """
     cache_root = _cache_dir()
     run_root = cache_root / "runs" / run_id
@@ -91,11 +113,20 @@ def _load_run_model_cached(client: MlflowClient, run_id: str, artifact_path: str
 
     # If already cached and looks like MLflow model dir → load directly.
     if (model_dir / "MLmodel").exists():
-        return mlflow.sklearn.load_model(str(model_dir))
+        try:
+            return mlflow.sklearn.load_model(str(model_dir))
+        except Exception as e:
+            # Cache corrupted, try to re-download
+            import shutil
+            if model_dir.exists():
+                shutil.rmtree(model_dir, ignore_errors=True)
 
     # Otherwise download artifacts into run_root
     run_root.mkdir(parents=True, exist_ok=True)
-    _download_artifact_if_exists(client, run_id, artifact_path, run_root)
+    downloaded = _download_artifact_if_exists(client, run_id, artifact_path, run_root, timeout=timeout)
+    
+    if downloaded is None:
+        raise RuntimeError(f"Failed to download model artifact from run_id={run_id}, artifact_path={artifact_path}")
 
     if not (model_dir / "MLmodel").exists():
         raise RuntimeError(f"Cached model dir is missing MLmodel: {model_dir}")
@@ -107,12 +138,29 @@ def _load_expected_columns(client: MlflowClient, run_id: str, model: Any) -> lis
     cache_root = _cache_dir()
     run_root = cache_root / "runs" / run_id
 
-    p = _download_artifact_if_exists(client, run_id, "expected_columns.json", run_root)
-    if p and p.exists():
-        cols = json.loads(p.read_text(encoding="utf-8"))
-        if isinstance(cols, list) and cols:
-            return [str(c) for c in cols]
+    # Try cached first
+    cached_json = run_root / "expected_columns.json"
+    if cached_json.exists():
+        try:
+            data = json.loads(cached_json.read_text(encoding="utf-8"))
+            cols = data.get("expected_columns") if isinstance(data, dict) else data
+            if isinstance(cols, list) and cols:
+                return [str(c) for c in cols]
+        except Exception:
+            pass
 
+    # Try download
+    p = _download_artifact_if_exists(client, run_id, "expected_columns.json", run_root, timeout=10)
+    if p and p.exists():
+        try:
+            data = json.loads(p.read_text(encoding="utf-8"))
+            cols = data.get("expected_columns") if isinstance(data, dict) else data
+            if isinstance(cols, list) and cols:
+                return [str(c) for c in cols]
+        except Exception:
+            pass
+
+    # Fallback to model
     cols2 = getattr(model, "feature_names_in_", None)
     if cols2 is not None:
         return [str(c) for c in cols2]
@@ -127,7 +175,19 @@ def _load_example_features(client: MlflowClient, run_id: str) -> Optional[dict[s
     cache_root = _cache_dir()
     run_root = cache_root / "runs" / run_id
 
-    p = _download_artifact_if_exists(client, run_id, "example_payload.json", run_root)
+    # Try cached first
+    cached_json = run_root / "example_payload.json"
+    if cached_json.exists():
+        try:
+            payload = json.loads(cached_json.read_text(encoding="utf-8"))
+            feats = payload.get("features")
+            if isinstance(feats, dict):
+                return feats
+        except Exception:
+            pass
+
+    # Try download
+    p = _download_artifact_if_exists(client, run_id, "example_payload.json", run_root, timeout=10)
     if not p or not p.exists():
         return None
 
@@ -143,7 +203,13 @@ def _load_drift_reference_path(client: MlflowClient, run_id: str) -> Optional[st
     cache_root = _cache_dir()
     run_root = cache_root / "runs" / run_id
 
-    p = _download_artifact_if_exists(client, run_id, "drift_reference_train.csv", run_root)
+    # Try cached first
+    cached_csv = run_root / "drift_reference_train.csv"
+    if cached_csv.exists():
+        return str(cached_csv)
+
+    # Try download
+    p = _download_artifact_if_exists(client, run_id, "drift_reference_train.csv", run_root, timeout=30)
     if p and p.exists():
         return str(p)
     return None
@@ -242,13 +308,32 @@ def load_model_bundle() -> ModelBundle:
 
     try:
         assert run_id is not None
-        model = _load_run_model_cached(client, run_id, artifact_path)
-        expected_columns = _load_expected_columns(client, run_id, model)
-        threshold = _load_threshold(client, run_id)
+        # Load model first (most critical, longest operation)
+        model = _load_run_model_cached(client, run_id, artifact_path, timeout=120)
+        
+        # Load metadata (can fail gracefully)
+        try:
+            expected_columns = _load_expected_columns(client, run_id, model)
+        except Exception as e:
+            # Fallback to model feature names
+            cols = getattr(model, "feature_names_in_", None)
+            if cols is None:
+                raise RuntimeError(f"Could not load expected_columns: {e}")
+            expected_columns = [str(c) for c in cols]
+        
+        try:
+            threshold = _load_threshold(client, run_id)
+        except Exception:
+            threshold = 0.5  # Safe default
 
-        run_info = client.get_run(run_id).info
-        experiment_id = str(run_info.experiment_id)
+        try:
+            run_info = client.get_run(run_id).info
+            experiment_id = str(run_info.experiment_id)
+        except Exception:
+            # Fallback if we can't get run info
+            experiment_id = "0"
 
+        # These are optional, don't fail if missing
         example_features = _load_example_features(client, run_id)
         drift_reference_path = _load_drift_reference_path(client, run_id)
 
