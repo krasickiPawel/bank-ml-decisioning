@@ -1,0 +1,4 @@
+feature,contribution
+cat__savings_status_>=1000,-0.9075041766432536
+cat__other_payment_plans_bank,0.6553226732481714
+cat__foreign_worker_yes,0.6350494165198984

@@ -22,6 +22,20 @@ Threshold is selected on validation data using a cost function.
 
 **For interview demos - everything runs locally, no external dependencies after initial setup.**
 
+### Ścieżka A: MVP (zero MLflow, 3 komendy)
+Jeśli chcesz najprostsze demo bez MLflow i sieci:
+```bash
+cd mvp && pip install -r requirements.txt && python train.py
+uvicorn api:app --host 0.0.0.0 --port 8000   # terminal 1
+streamlit run streamlit_app.py               # terminal 2
+```
+Szczegóły: [mvp/README.md](mvp/README.md).
+
+### Ścieżka B: Pełny projekt (MLflow + drift + RAG)
+Wymaga uruchomienia MLflow, treningów i `select_best_model` — szczegóły poniżej.
+
+---
+
 ### 1. Initial Setup (Run Once)
 
 **Windows (PowerShell):**

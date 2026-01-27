@@ -385,9 +385,37 @@ System składa się z:
 
 ---
 
+## 🎬 Dwa scenariusze demo — co wybrać
+
+### Opcja A: MVP (`mvp/`) — najbezpieczniejsza
+- **Kiedy:** Chcesz zero stresu, wszystko działa w 3 komendach, bez MLflow/docker.
+- **Przed rozmową:** `cd mvp && pip install -r requirements.txt && python train.py` (jednorazowo).
+- **Na rozmowie:** `uvicorn api:app --port 8000` (term 1), `streamlit run streamlit_app.py` (term 2) → Health, Schema, Predict.
+- **Co powiedzieć:** „To uproszczony MVP: pipeline (preprocessing + model), train/val/test, threshold z cost function, FastAPI z schema. W pełnym projekcie dodaję MLflow, drift, RAG.”
+
+### Opcja B: Pełny projekt (MLflow + API + Streamlit)
+- **Kiedy:** Chcesz pokazać MLflow, drift, RAG i Model Registry.
+- **Przed rozmową (obowiązkowo):**
+  1. Uruchom MLflow: `mlflow server --host 0.0.0.0 --port 5050 --backend-store-uri sqlite:///mlflow/mlflow.db --default-artifact-root ./mlartifacts`
+  2. Wytrenuj 2–3 modele (żeby w UI były runy):  
+     `python -m src.train --model rf --run-name rf-baseline`  
+     `python -m src.train --model xgb --run-name xgb-baseline`  
+     (opcjonalnie) `python -m src.train --model logreg --run-name logreg-baseline`
+  3. Wybierz „best”: `python src/scripts/select_best_model.py`
+  4. Sprawdź, że API startuje i odpowiada: `uvicorn src.api.app:app --port 8000` → Health 200, Schema 200.
+- **Na rozmowie:** Pokaż MLflow UI (runy, metryki, artefakty), potem API + Streamlit. **Nie uruchamiaj treningów na żywo** — tylko gotowy flow.
+
+### Treningi różnych modeli — tak, ale przed rozmową
+- **Tak,** warto mieć w MLflow kilka runów (RF, XGB, ewentualnie LogReg), żeby na rozmowie pokazać eksperymenty, wybór „best” i Model Registry.
+- **Nie** uruchamiaj treningów w trakcie demo — trwają minuty, ryzyko błędów sieci/czasu. Zrób to raz wieczorem przed rozmową i przetestuj cały flow.
+
+---
+
 ## ✅ Checklist przed rozmową
 
+- [ ] **Ścieżka wybrana:** MVP lub pełny projekt (i przetestowana!)
 - [ ] Projekt działa lokalnie (przetestuj!)
+- [ ] Przy pełnym projekcie: MLflow + 2–3 treningi + `select_best_model` wykonane wcześniej
 - [ ] Demo script przygotowany
 - [ ] Przećwiczona prezentacja (5-10 min)
 - [ ] Odpowiedzi na top pytania przygotowane
