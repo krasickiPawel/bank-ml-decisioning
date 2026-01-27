@@ -313,7 +313,9 @@ def _run_url(bundle: ModelBundle) -> Optional[str]:
 def health() -> HealthResponse:
     b = _get_bundle()
     reload_status = _get_reload_status()
-    rag = _get_or_init_rag()
+    # Do NOT call _get_or_init_rag() here — it triggers MLflow artifact downloads
+    # and causes "Downloading artifacts" spam + timeouts. RAG builds on first /rag/ask.
+    rag = getattr(app.state, "rag", None)
     rag_indexed_run_id = getattr(rag, "run_id", None) if rag is not None else None
 
     if b is None:
