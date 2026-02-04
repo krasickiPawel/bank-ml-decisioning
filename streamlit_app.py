@@ -10,7 +10,7 @@ import requests
 import streamlit as st
 import pandas as pd
 
-DEFAULT_API_URL = os.getenv("API_URL", "http://localhost:8000")
+DEFAULT_API_URL = os.getenv("API_URL", "http://localhost:8001")
 
 st.set_page_config(page_title="Credit Risk Demo", layout="wide")
 st.title("Credit Risk Decisioning — demo")
