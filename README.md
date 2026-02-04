@@ -122,7 +122,7 @@ Install:
 python -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
-````
+```
 
 ---
 
@@ -327,4 +327,13 @@ Example questions:
   This allows the API to start quickly even if MLflow server is slow or unavailable.
 * **RAG lazy loading:** RAG index is built on first request, not during API startup.
   This prevents blocking during initialization.
+
+---
+
+## Before pushing to GitHub
+
+- Copy `.env.example` to `.env` if you use env vars locally; **do not commit `.env`** (it is in `.gitignore`).
+- After clone, others run **setup** (e.g. `./setup.sh` or `.\setup.ps1`), then either **MVP** (see path A above) or **full flow** (MLflow + train + select_best_model).
+- Dataset: `data/raw/credit-g.csv` is not in the repo; setup downloads it via `src.data.load_credit_g` (OpenML 31). MVP `train.py` can also fetch it if `mvp/data/raw/credit-g.csv` is missing.
+- For **demo flow and interview tips**, see [DEMO_AND_INTERVIEW.md](DEMO_AND_INTERVIEW.md).
 

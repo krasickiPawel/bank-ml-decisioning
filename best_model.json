@@ -1,0 +1,13 @@
+{
+  "run_id": "e83ff44527ba4243a804f0066401c9ca",
+  "experiment": "bank-credit-risk-http",
+  "criteria": {
+    "primary": "min(test_cost_at_val_threshold)",
+    "secondary": "max(test_roc_auc)"
+  },
+  "metrics": {
+    "test_cost_at_val_threshold": 107.0,
+    "test_roc_auc": 0.7903571428571429,
+    "best_threshold_val": 0.32
+  }
+}
