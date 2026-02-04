@@ -2,19 +2,53 @@
 .venv/
 __pycache__/
 *.pyc
+*.pyo
 
-# Data
+# Env and secrets (use .env.example as template)
+.env
+.env.local
+*.pem
+
+# Data and artifacts (regenerate via setup + train)
 data/raw/*.csv
 data/processed/
+data/mlflow_cache/
+data/rag_index/
+data/requests.jsonl
+mvp/data/raw/*.csv
 
-# MLflow volumes
+# MLflow (local server state)
 mlflow/
+mlartifacts/
+data/mlflow_cache/
+data/model_cache/
+
+# Generated (regenerate via train / scripts)
+cv_results.csv
+feature_importance_top.csv
+perm_importance_top30.csv
+threshold_cost_table_test.csv
+threshold_cost_table_val.csv
+drift_reference_train.csv
+sample_reasons.csv
 
 # Reports
 reports/figures/
+
+# Archives (do not commit)
+*.zip
 
 # OS/IDE
 .DS_Store
 .vscode/
 .idea/
 
+*.code-workspace
+cv_results.csv
+feature_importance_top.csv
+perm_importance_top30.csv
+threshold_cost_table_test.csv
+threshold_cost_table_val.csv
+drift_reference_train.csv
+sample_reasons.csv
+data/model_cache/
